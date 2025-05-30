@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Robot Control Panel</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+      margin: 20px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+    #chart-container {
+      position: relative;
+      height: 500px;
+      width: 600px;
+      margin: auto;
+    }
+    #heading {
+      font-size: 20px;
+      margin-top: 15px;
+    }
+    #arrow {
+      display: inline-block;
+      width: 40px;
+      height: 40px;
+      background: url('https://cdn-icons-png.flaticon.com/512/32/32195.png') no-repeat center;
+      background-size: contain;
+      transform: rotate(0deg);
+      transition: transform 0.5s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Robot Control Panel</h1>
+
+  <div>
+    <button onclick="sendCommand('forward')">Forward</button><br>
+    <button onclick="sendCommand('left')">Left</button>
+    <button onclick="sendCommand('stop')">Stop</button>
+    <button onclick="sendCommand('right')">Right</button><br>
+    <button onclick="sendCommand('reverse')">Reverse</button><br>
+    <button onclick="sendReset()">Reset</button>
+  </div>
+
+  <h2>Robot Position (Cartesian Quadrants)</h2>
+  <div id="chart-container">
+    <canvas id="pathChart"></canvas>
+  </div>
+
+  <div id="heading">
+    Heading: <span id="headingVal">0</span>°
+    <div id="arrow"></div>
+  </div>
+
+  <script>
+    const ws = new WebSocket("wss://robot-to-3d-server.onrender.com/ws");
+
+    function sendCommand(dir) {
+      const cmd = {
+        event: "command",
+        payload: {
+          forward: false,
+          reverse: false,
+          left: false,
+          right: false,
+          stop: false
+        }
+      };
+      cmd.payload[dir] = true;
+      ws.send(JSON.stringify(cmd));
+    }
+
+    function sendReset() {
+      const msg = { event: "reset", payload: {} };
+      ws.send(JSON.stringify(msg));
+    }
+
+    const ctx = document.getElementById('pathChart').getContext('2d');
+    let pathData = [];
+
+    const chart = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: 'Path',
+            data: pathData,
+            borderColor: 'blue',
+            backgroundColor: 'blue',
+            showLine: true,
+            fill: false,
+            pointRadius: 3,
+          },
+          {
+            label: 'Robot',
+            data: [],
+            backgroundColor: 'red',
+            pointRadius: 6,
+            showLine: false
+          },
+          {
+            label: 'Origin',
+            data: [{ x: 0, y: 0 }],
+            backgroundColor: 'yellow',
+            pointRadius: 6,
+            showLine: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true }
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            title: { display: true, text: 'X (cm)' },
+            min: -200,
+            max: 200,
+            grid: { color: '#ccc' }
+          },
+          y: {
+            type: 'linear',
+            title: { display: true, text: 'Y (cm)' },
+            min: -200,
+            max: 200,
+            grid: { color: '#ccc' }
+          }
+        }
+      }
+    });
+
+    ws.onmessage = function(event) {
+      const msg = JSON.parse(event.data);
+
+      if (msg.event === "update") {
+        const { X, Y, heading } = msg.payload;
+
+        // Add new point to path
+        pathData.push({ x: X, y: Y });
+
+        // Update robot's current position
+        chart.data.datasets[1].data = [{ x: X, y: Y }];
+
+        // Update heading display and arrow
+        document.getElementById("headingVal").innerText = heading.toFixed(1);
+        document.getElementById("arrow").style.transform = `rotate(${heading}deg)`;
+
+        chart.update();
+      }
+
+      else if (msg.event === "reset_done") {
+        // Clear path and robot position
+        pathData = [];
+        chart.data.datasets[0].data = pathData;
+        chart.data.datasets[1].data = [{ x: 0, y: 0 }];
+        chart.data.datasets[2].data = [{ x: 0, y: 0 }];
+
+        // Reset heading display
+        document.getElementById("headingVal").innerText = "0";
+        document.getElementById("arrow").style.transform = "rotate(0deg)";
+
+        chart.update();
+      }
+    };
+  </script>
+
+</body>
+</html>
